@@ -1,33 +1,55 @@
 name: Build iOS IPA
-on: [workflow_dispatch]
+on: 
+  workflow_dispatch:
+    inputs:
+      game_download_url:
+        description: 'Direct download URL for game NSP/zip (or upload to repo/drive)'
+        required: false
+        default: ''
 
 jobs:
   build:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          node-version: 20
-      - run: npm install
-      - name: Install Pods
-        run: |
-          cd ios
-          pod install
-      - name: Build Archive
-        run: |
-          xcodebuild -workspace ios/NxNative.xcworkspace \
-                     -scheme NxNative \
-                     -configuration Release \
-                     -archivePath build/NxNative.xcarchive \
-                     archive \
-                     CODE_SIGNING_ALLOWED=NO
-      - name: Package IPA
-        run: |
-          mkdir -p Payload
-          cp -r build/NxNative.xcarchive/Products/Applications/*.app Payload/
-          zip -r NxNative.ipa Payload
-      - uses: actions/upload-artifact@v4
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          name: NxNative-IPA
-          path: NxNative.ipa
+          python-version: '3.11'
+
+      - name: Install System & Build Tools
+        run: |
+          brew install xcodegen zstd spirv-cross glslang
+          brew install --cask dotnet-sdk
+          python3 -m pip install lz4 capstone fonttools "backports.zstd; python_version < '3.14'" nsz
+
+      - name: Prepare Keys and Game Files
+        env:
+          PROD_KEYS: ${{ secrets.PROD_KEYS }}
+        run: |
+          mkdir -p ~/keys
+          mkdir -p ~/Games/InputGame
+          
+          # Write prod.keys from GitHub Secrets
+          echo "$PROD_KEYS" > ~/keys/prod.keys
+          
+          # If you passed a URL, download it; otherwise place files in Games/ folder
+          if [ -n "${{ github.event.inputs.game_download_url }}" ]; then
+            curl -L "${{ github.event.inputs.game_download_url }}" -o ~/Games/InputGame/game.nsp
+          fi
+
+      - name: Run nxnative Build Script
+        run: |
+          # Point this to wherever your game .nsp files are stored
+          python3 scripts/build_ipa_from_nsp.py ~/Games/InputGame -k ~/keys/prod.keys -o build/
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Game-IPA
+          path: "**/*.ipa"
+          if-no-files-found: error
