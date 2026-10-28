@@ -1,0 +1,33 @@
+name: Build iOS IPA
+on: [workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - name: Install Pods
+        run: |
+          cd ios
+          pod install
+      - name: Build Archive
+        run: |
+          xcodebuild -workspace ios/NxNative.xcworkspace \
+                     -scheme NxNative \
+                     -configuration Release \
+                     -archivePath build/NxNative.xcarchive \
+                     archive \
+                     CODE_SIGNING_ALLOWED=NO
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -r build/NxNative.xcarchive/Products/Applications/*.app Payload/
+          zip -r NxNative.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NxNative-IPA
+          path: NxNative.ipa
